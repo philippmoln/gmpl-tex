@@ -1,0 +1,346 @@
+// ============================================================================
+//  GMPL (GNU MathProg) -> LaTeX : grammar for the supported model subset
+// ============================================================================
+//
+//  Reading guide:
+//
+//    expression_N  precedence ladder; N grows as binding weakens
+//                  (expression_0 binds tightest .. expression_13 loosest).
+//    ?rule         inlines the node when it has a single child, so the ladder
+//                  doesn't bury the tree in pass-through nodes.
+//    _rule / _TOK  underscore drops the node (or keeps the token inline in the
+//                  parent) instead of producing one of its own.
+//    -> alias      renames an alternative's node so the transformer dispatches
+//                  on meaning (-> mul) rather than re-inspecting token shapes.
+// ============================================================================
+
+
+// ---- Top level -------------------------------------------------------------
+
+model: statement*
+
+statement: set_statement
+         | parameter_statement
+         | variable_statement
+         | constraint_statement
+         | objective_statement
+         | _solve_statement
+         | _check_statement
+         | _display_statement
+         | _table_statement
+         | _printf_statement
+         | _for_statement
+         | _data_block
+         | _end
+
+
+// ---- Omitted code blocks ---------------------------------------------------
+
+_solve_statement: SOLVE ";"
+
+_check_statement: CHECK SKIP ";"
+
+_display_statement: DISPLAY SKIP ";"
+
+_table_statement: TABLE SKIP ";"
+
+_printf_statement: PRINTF PRINTF_SKIP ";"
+
+_data_block: DATA ";" DATA_BODY?
+
+_for_statement: FOR FOR_SKIP?
+
+_end: END ";"
+
+// ---- Shared declaration pieces ---------------------------------------------
+// Every declaration may carry an optional alias ('string' after the name) and
+// an optional index domain ({ i in I, j in J : cond }).
+
+alias:  STRING_LIT
+domain: brace_expression
+
+brace_expression: "{" "}"                               -> empty_set
+                | "{" brace_list "}"                    -> brace_set
+                | "{" brace_list ":" expression_13 "}"  -> filtered_brace_set
+
+brace_list: brace_element (_COMMA brace_element)*
+
+brace_element: NAME IN expression_9                     -> idx_in
+             | "(" expression_list ")" IN expression_9  -> idx_tuple_in   // (i,j) in S
+             | expression_9                             -> idx_bare       // bare set, dummy invented
+
+number_attr: _COMMA? INTEGER -> int_attr
+           | _COMMA? BINARY  -> binary_attr
+
+// ---- set ... ; -------------------------------------------------------------
+
+set_statement: "set" NAME [alias] [domain] set_attr* ";"
+
+set_attr: _COMMA? DIMEN   NUMBER        -> set_dimen
+        | _COMMA? WITHIN  expression_9  -> set_within
+        | _COMMA? IN      expression_9  -> set_within    // 'in' read as 'within' for sets
+        | _COMMA? ASSIGN  expression_9  -> set_assign
+        | _COMMA? DEFAULT expression_9  -> set_default
+
+
+// ---- param ... ; -----------------------------------------------------------
+
+parameter_statement: "param" NAME [alias] [domain] param_attrib* ";"
+
+param_attrib: number_attr                    -> num_attr
+            | _COMMA? SYMBOLIC               -> param_symbolic
+            | _COMMA? param_rho expression_5 -> param_condition   // bound, e.g. >= 0
+            | _COMMA? IN        expression_9 -> param_in
+            | _COMMA? WITHIN    expression_9 -> param_in
+            | _COMMA? ASSIGN    expression_5 -> param_assign      // GLPK: expression_5
+            | _COMMA? DEFAULT   expression_5 -> param_default     // GLPK: expression_5
+
+param_rho: LEQ | LT | EQ | DEQ | GEQ | GT | NEQ | BNEQ
+
+
+// ---- var ... ; -------------------------------------------------------------
+
+variable_statement: "var" NAME [alias] [domain] var_attr* ";"
+
+var_attr: number_attr                  -> num_attr
+        | _COMMA? LEQ     expression_5 -> var_less_than
+        | _COMMA? GEQ     expression_5 -> var_greater_than
+        | _COMMA? EQ      expression_5 -> var_eq
+        | _COMMA? DEQ     expression_5 -> var_eq
+
+
+// ---- subject to ... ; ------------------------------------------------------
+// The leading "subject to" / "s.t." keyword is optional in GMPL. Double-bound
+// forms (lb <= expr <= ub and the three mixed-operator variants) are kept as
+// distinct alternatives so the transformer can normalise them to lb <= e <= ub.
+
+constraint_statement: SUBJECT_TO NAME [alias] [domain] ":" constraint ";"
+
+constraint: expression_5 _COMMA? EQ  expression_5
+          | expression_5 _COMMA? LEQ expression_5
+          | expression_5 _COMMA? GEQ expression_5
+          | expression_5 _COMMA? LEQ expression_5 _COMMA? LEQ expression_5
+          | expression_5 _COMMA? GEQ expression_5 _COMMA? GEQ expression_5
+          | expression_5 _COMMA? GEQ expression_5 _COMMA? LEQ expression_5
+          | expression_5 _COMMA? LEQ expression_5 _COMMA? GEQ expression_5
+
+
+// ---- minimize / maximize ... ; ---------------------------------------------
+
+objective_statement: verb NAME [alias] [domain] ":" expression_5 ";"
+
+verb: MINIMIZE -> minimize
+    | MAXIMIZE -> maximize
+
+
+// ============================================================================
+//  Expression ladder (loosest .. tightest binding)
+// ----------------------------------------------------------------------------
+//   13 or            8  inter
+//   12 and           7  cross
+//   11 not           6  range (.. , .. by ..)
+//   10 relational    5  & concat
+//    9 union/diff/    4  + - less
+//      symdiff        3  * / div mod
+//                     2  unary + -
+//                     1  ^ pow
+//                     0  primary
+// ============================================================================
+
+?expression_13: expression_12
+              | expression_13 OR expression_12      -> or_expr
+
+?expression_12: expression_11
+              | expression_12 AND expression_11     -> and_expr
+
+?expression_11: expression_10
+              | NOT expression_10                   -> not_expr
+
+?expression_10: expression_9
+              | expression_9 _rho expression_9      -> relational_expr   // non-associative
+
+?expression_9: expression_8
+             | expression_9 UNION   expression_8    -> union_expr
+             | expression_9 DIFF    expression_8    -> diff_expr
+             | expression_9 SYMDIFF expression_8    -> symdiff_expr
+
+?expression_8: expression_7
+             | expression_8 INTER expression_7      -> inter_expr
+
+?expression_7: expression_6
+             | expression_7 CROSS expression_6      -> cross_expr
+
+?expression_6: expression_5
+             | expression_5 DOTS expression_5                 -> range_expr
+             | expression_5 DOTS expression_5 BY expression_5 -> range_by_expr
+
+?expression_5: expression_4
+             | expression_5 AMP expression_4        -> concat_expr
+
+?expression_4: expression_3
+             | expression_4 PLUS  expression_3
+             | expression_4 MINUS expression_3
+             | expression_4 LESS  expression_3      -> op_less          // max(a-b, 0)
+
+?expression_3: expression_2
+             | expression_3 ASTERISK expression_2   -> mul
+             | expression_3 SLASH    expression_2   -> div
+             | expression_3 DIV      expression_2   -> int_div
+             | expression_3 MOD      expression_2   -> mod
+
+?expression_2: expression_1
+             | PLUS  expression_1
+             | MINUS expression_1
+
+?expression_1: expression_0
+             | expression_0 POW expression_2        // right-assoc via expression_2
+
+?expression_0: primary_expression
+
+
+// ---- Primary expressions ---------------------------------------------------
+// min/max are listed here as well as in the iterated block: with a brace they
+// aggregate (min{i in I} ..), with parentheses they are ordinary functions.
+
+primary_expression: NUMBER                      -> number
+                  | INFINITY                    -> infinity_lit
+                  | STRING_LIT                   -> str_lit
+                  | NAME "[" subscript_list "]"  -> subscript_ref
+                  | NAME "(" arg_list ")"        -> func_call
+                  | NAME "(" ")"                 -> func_call_noargs
+                  | MIN  "(" arg_list ")"        -> func_call
+                  | MAX  "(" arg_list ")"        -> func_call
+                  | NAME                         -> name
+                  | iterated_expression
+                  | branched_expression
+                  | brace_expression             -> set_value
+                  | "(" expression_list ")"      -> paren_expr   // (e) or (e1, e2, ..) tuple
+
+subscript_list:  expression_5  (_COMMA expression_5)*
+arg_list:        expression_13 (_COMMA expression_13)*
+expression_list: expression_13 (_COMMA expression_13)*
+
+// Iterated (aggregate) expressions. Integrand precedence follows GLPK:
+//   sum/prod/min/max -> expression_3 ; forall/exists -> expression_12 ;
+//   setof -> expression_5.
+iterated_expression: SUM    brace_expression expression_3  -> sum_expr
+                   | PROD   brace_expression expression_3  -> prod_expr
+                   | MIN    brace_expression expression_3  -> min_expr
+                   | MAX    brace_expression expression_3  -> max_expr
+                   | FORALL brace_expression expression_12 -> forall_expr
+                   | EXISTS brace_expression expression_12 -> exists_expr
+                   | SETOF  brace_expression expression_5  -> setof_expr
+
+// Conditional expressions. 'else' is optional in the grammar
+branched_expression: IF expression_13 THEN expression_9                   -> if_then_expr
+                   | IF expression_13 THEN expression_9 ELSE expression_9 -> if_then_else_expr
+
+// Relational operators usable inside expressions (set membership included).
+// Wider than param_rho, which only allows the arithmetic comparisons.
+_rho: LEQ | LT | EQ | DEQ | GEQ | GT | NEQ | BNEQ
+    | IN     | NOT_IN     | BANG_IN
+    | WITHIN | NOT_WITHIN | BANG_WITHIN
+
+
+// ============================================================================
+//  Terminals
+// ----------------------------------------------------------------------------
+//  Keyword terminals carry priority .2+ so they outrank NAME, and use \b so
+//  'integer' matches but 'integerX' stays a NAME. Multi-word / symbolic
+//  negations ('not in', '!in', '!=') get the highest priorities so they win
+//  over their single-token prefixes (NOT, IN, '!').
+// ============================================================================
+
+// Identifiers and literals
+NAME:       /[A-Za-z_][A-Za-z0-9_]*/
+NUMBER:     /[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?/
+          | /\.[0-9]+([eE][+-]?[0-9]+)?/
+STRING_LIT: /\'(\'\'|[^\'])*\'/ | /\"(\"\"|[^\"])*\"/      // doubled quote = literal quote
+INFINITY.2: /Infinity\b/
+
+// Declaration keywords and type qualifiers
+MINIMIZE.2: /minimize\b/
+MAXIMIZE.2: /maximize\b/
+SUBJECT_TO.3: "s.t." | "subject to" | "subj to"
+DIMEN.2:    /dimen\b/
+DEFAULT.2:  /default\b/
+INTEGER.2:  /integer\b/
+BINARY.2:   /binary\b/
+SYMBOLIC.2: "symbolic"
+
+// Set operators and membership
+UNION.2:    /union\b/
+DIFF.2:     /diff\b/
+SYMDIFF.2:  /symdiff\b/
+INTER.2:    /inter\b/
+CROSS.2:    /cross\b/
+WITHIN.2:   /within\b/
+IN.2:       /in\b/
+NOT_IN.4:      /not[ \t\r\n]+in(?![A-Za-z0-9_])/
+NOT_WITHIN.4:  /not[ \t\r\n]+within(?![A-Za-z0-9_])/
+BANG_IN.4:     "!in"
+BANG_WITHIN.4: "!within"
+
+// Aggregate / iterated operators
+SUM.2:      /sum\b/
+PROD.2:     /prod\b/
+MIN.2:      /min\b/
+MAX.2:      /max\b/
+FORALL.2:   /forall\b/
+EXISTS.2:   /exists\b/
+SETOF.2:    /setof\b/
+
+// Conditional keywords
+IF.2:       /if\b/
+THEN.2:     /then\b/
+ELSE.2:     /else\b/
+
+// Arithmetic
+PLUS:       "+"
+MINUS:      "-"
+ASTERISK:   "*"
+SLASH:      "/"
+POW:        "^" | "**"
+DIV.2:      /div\b/
+MOD.2:      /mod\b/
+LESS.2:     /less\b/
+
+// Relational
+GEQ:        ">="
+LEQ:        "<="
+NEQ:        "<>"
+EQ:         "="
+DEQ:        "=="
+LT:         "<"
+GT:         ">"
+BNEQ.3:     "!="
+
+// Logical
+AND.2:      /and\b/ | "&&"
+OR.2:       /or\b/  | "||"
+NOT.2:      /not\b/ | "!"
+
+// Punctuation and assignment
+_COMMA:     ","
+ASSIGN.3:   ":="
+DOTS.3:     ".."        // range, a .. b
+BY.2:       /by\b/      // range step, a .. b by c
+AMP:        "&"
+
+TABLE:          "table"
+SOLVE:          "solve"
+CHECK:          "check"
+DISPLAY:        "display"
+PRINTF:         /printf?\b/
+PRINTF_SKIP:    /(?:[^;"']|"(?:""|[^"])*"|'(?:''|[^'])*')+/
+FOR:            "for"
+FOR_SKIP:       /[\s\S]+/
+DATA:           "data"
+DATA_BODY:       /(?:(?!\bend\s*;)[\s\S])+/
+END:            "end"
+SKIP:           /[^;]+/
+
+%import common.WS
+%ignore WS
+%ignore /#[^\n]*/
+%ignore /\/\*(.|\n)*?\*\//
