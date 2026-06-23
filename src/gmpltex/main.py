@@ -1,13 +1,14 @@
 from lark import Lark
 from lark.exceptions import UnexpectedInput, GrammarError
 from pathlib import Path
-from Transformers.LatexTransformer import *
-from Transformers.LookupTableBuilder import *
-from Modules.LatexAssembler import *
+from .Transformers.LatexTransformer import *
+from .Transformers.LookupTableBuilder import *
+from .Modules.LatexAssembler import *
 
 import sys
 import json
 import argparse
+import importlib.resources as resources
 
 BANNER = """\
  ██████╗ ███╗   ███╗██████╗ ██╗      ████████╗███████╗██╗  ██╗
@@ -19,8 +20,6 @@ BANNER = """\
 
 GMPL → LaTeX converter
 """
-
-GRAMMAR_PATH = Path(__file__).parent / "grammar.lark"
 
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -47,16 +46,22 @@ def parse_model(model_src: Path):
     """
 
     try:
-        grammar = GRAMMAR_PATH.read_text(encoding="utf-8")
+        grammar = (resources.files(__package__) / "grammar.lark").read_text(encoding="utf-8")
+    except (FileNotFoundError, ModuleNotFoundError):
+        print("Internal error: the bundled 'grammar.lark' is missing from the gmpl-tex package.",
+              file=sys.stderr)
+        raise SystemExit(1)
+
+    try:
         model = model_src.read_text(encoding="utf-8")
         parser = Lark(grammar, start="model", parser="lalr",
                       maybe_placeholders=True, propagate_positions=True)
         return parser.parse(model)
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         print(f"Model file '{model_src}' not found.", file=sys.stderr)
         raise SystemExit(1)
     except GrammarError as e:
-        print(f"Invalid grammar file '{GRAMMAR_PATH}': {e}")
+        print(f"Invalid bundled grammar: {e}", file=sys.stderr)
         raise SystemExit(1)
     except UnexpectedInput as e:
         print(f"Parse error in model '{model_src}' at line {e.line}, column {e.column}:", 
