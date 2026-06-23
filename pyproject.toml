@@ -4,11 +4,20 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gmpl-tex"
-version = "0.1.0"
+version = "1.0.0dev"
 description = "Convert GMPL (GNU MathProg) models into LaTeX."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["lark>=1.1"]
+license = { file = "LICENSE" }
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+]
+authors = [
+  { name = "Philipp Molnar" }
+]
 
 [project.scripts]
 gmpl-tex = "gmpltex.main:main"
