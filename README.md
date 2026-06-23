@@ -12,20 +12,33 @@ The tool works in two phases so you stay in control of the notation:
 2. **LaTeX generation** - render the model to LaTeX, substituting your edited
    labels from the JSON table.
 
+## Requirements
+ 
+- **Python 3.10 or newer.** Check what you have:
+  - Windows: `py --version`
+  - macOS / Linux: `python3 --version`
+  - If it's missing, install from [python.org](https://www.python.org/downloads/). On Windows,
+    tick **"Add python.exe to PATH"** in the installer.
+- [`lark`](https://github.com/lark-parser/lark) - installed automatically.
+- **No `git` required** for any of the commands below.
+
+
 ## Install
 
-No Python project setup required for users - pick whichever you have:
+After installing, the command is named `gmpl-tex` and works the same on every platform.
 
-```bash
-# with uv (no install, runs in a throwaway environment)
-uvx --from git+https://github.com/<you>/gmpl-tex gmpl-tex --help
-
-# with pipx (installs the gmpl-tex command onto your PATH)
-pipx install git+https://github.com/<you>/gmpl-tex
-
-# with plain pip, into a virtual environment
-pip install git+https://github.com/<you>/gmpl-tex
+**Windows** (PowerShell or Command Prompt):
+ 
+```bat
+py -m pip install "https://github.com/philippmoln/gmpl-tex/archive/refs/heads/main.zip"
 ```
+ 
+**macOS / Linux:**
+ 
+```bash
+python3 -m pip install "https://github.com/philippmoln/gmpl-tex/archive/refs/heads/main.zip"
+```
+
 
 ## Usage
 
@@ -54,7 +67,7 @@ overwritten.
 
 An example model is included under [`examples/model.mod`](examples/model.mod).
 
-## Requirements
-
-- Python 3.10 or newer
-- [`lark`](https://github.com/lark-parser/lark) (installed automatically)
+## Troubleshooting
+ 
+- **A symbol shows up in red in the output.** That symbol is missing from your `model.json`
+  lookup table - regenerate the table with `--json` after changing the model, then re-render.
